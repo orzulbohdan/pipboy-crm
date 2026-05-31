@@ -5,7 +5,7 @@ import { calculateLevelUp, XP_REWARDS, Difficulty } from '../lib/gameLogic';
 export default function PipBoyCRM() {
   const [user, setUser] = useState<any>(null);
   const [quests, setQuests] = useState<any[]>([]);
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isNewUser, setIsNewUser] = useState(false);
   const [newQuestTitle, setNewQuestTitle] = useState('');
@@ -40,12 +40,26 @@ export default function PipBoyCRM() {
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
+    const cleanLogin = username.trim().toLowerCase();
+    
+    if (!cleanLogin) {
+      alert('Введите корректный логин');
+      return;
+    }
+
+    // Незаметно для пользователя превращаем логин в виртуальный email Убежища
+    const virtualEmail = `${cleanLogin}@vault.tec`;
+
     if (isNewUser) {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) alert(error.message);
-      else alert('Доступ в Убежище разрешен! Войдите под своими данными.');
+      const { error } = await supabase.auth.signUp({ email: virtualEmail, password });
+      if (error) {
+        alert(error.message);
+      } else {
+        alert('Доступ в Убежище разрешен! Теперь переключитесь на "Войти" и авторизуйтесь под своими данными.');
+        setIsNewUser(false);
+      }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({ email: virtualEmail, password });
       if (error) alert(error.message);
     }
   }
@@ -53,10 +67,23 @@ export default function PipBoyCRM() {
   async function createQuest(e: React.FormEvent) {
     e.preventDefault();
     if (!newQuestTitle) return;
-    await supabase.from('quests').insert([{ title: newQuestTitle, description: newQuestDesc, difficulty: newQuestDiff, status: 'available' }]);
-    setNewQuestTitle('');
-    setNewQuestDesc('');
-    fetchQuests();
+    
+    const { error } = await supabase.from('quests').insert([
+      { 
+        title: newQuestTitle, 
+        description: newQuestDesc, 
+        difficulty: newQuestDiff, 
+        status: 'available' 
+      }
+    ]);
+
+    if (error) {
+      alert(error.message);
+    } else {
+      setNewQuestTitle('');
+      setNewQuestDesc('');
+      fetchQuests();
+    }
   }
 
   async function completeQuest(questId: number, difficulty: Difficulty) {
@@ -65,34 +92,82 @@ export default function PipBoyCRM() {
     const totalXp = user.experience + xpGained;
     const { level, remainingXp } = calculateLevelUp(totalXp, user.level);
 
+    // 1. Помечаем квест выполненным и записываем, кто его сделал
     await supabase.from('quests').update({ status: 'completed', assigned_to: user.id }).eq('id', questId);
+    
+    // 2. Обновляем уровень и опыт выжившего
     await supabase.from('profiles').update({ experience: remainingXp, level: level }).eq('id', user.id);
+
+    if (level > user.level) {
+      alert(`⚡️ LEVEL UP! Вы достигли ${level} уровня в Пустоши!`);
+    }
 
     checkUser();
     fetchQuests();
   }
 
+  // Экран авторизации (Вход / Регистрация)
   if (!user) {
     return (
       <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col justify-center items-center p-4">
+        <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] z-50"></div>
+        
         <div className="border border-green-500 p-6 w-full max-w-sm rounded-sm bg-zinc-900/50 shadow-[0_0_15px_rgba(34,197,94,0.2)]">
-          <h2 className="text-xl font-bold mb-4 text-center tracking-widest">{isNewUser ? 'РЕГИСТРАЦИЯ В ВОЛТ-ТЕК' : 'ВХОД В ПИП-БОЙ'}</h2>
+          <h2 className="text-xl font-bold mb-4 text-center tracking-widest">
+            {isNewUser ? 'РЕГИСТРАЦИЯ В ВОЛТ-ТЕК' : 'ВХОД В ПИП-БОЙ'}
+          </h2>
+          
           <form onSubmit={handleAuth} className="space-y-4">
-            <input type="email" placeholder="EMAIL" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-black border border-green-700 p-2 text-green-500 focus:outline-none focus:border-green-400 placeholder-green-800" required />
-            <input type="password" placeholder="ПАРОЛЬ" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-black border border-green-700 p-2 text-green-500 focus:outline-none focus:border-green-400 placeholder-green-800" required />
-            <button type="submit" className="w-full bg-green-900/40 border border-green-500 p-2 font-bold hover:bg-green-500 hover:text-black transition-colors uppercase tracking-wider">{isNewUser ? 'Создать терминал' : 'Авторизоваться'}</button>
+            <div>
+              <label className="text-[10px] text-green-600 block mb-1">ИДЕНТИФИКАТОР ВЫЖИВШЕГО</label>
+              <input 
+                type="text" 
+                placeholder="ВВЕДИТЕ ЛОГИН" 
+                value={username} 
+                onChange={e => setUsername(e.target.value)} 
+                className="w-full bg-black border border-green-700 p-2 text-green-500 focus:outline-none focus:border-green-400 placeholder-green-900 uppercase" 
+                required 
+              />
+            </div>
+            
+            <div>
+              <label className="text-[10px] text-green-600 block mb-1">КОД ДОСТУПА</label>
+              <input 
+                type="password" 
+                placeholder="ВВЕДИТЕ ПАРОЛЬ" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                className="w-full bg-black border border-green-700 p-2 text-green-500 focus:outline-none focus:border-green-400 placeholder-green-900" 
+                required 
+              />
+            </div>
+            
+            <button 
+              type="submit" 
+              className="w-full bg-green-900/40 border border-green-500 p-2 font-bold hover:bg-green-500 hover:text-black transition-colors uppercase tracking-wider mt-2"
+            >
+              {isNewUser ? 'Создать терминал' : 'Авторизоваться'}
+            </button>
           </form>
-          <button onClick={() => setIsNewUser(!isNewUser)} className="w-full text-center text-xs mt-4 underline text-green-700 hover:text-green-500">{isNewUser ? 'Уже есть аккаунт? Войти' : 'Новый выживший? Зарегистрироваться'}</button>
+          
+          <button 
+            onClick={() => setIsNewUser(!isNewUser)} 
+            className="w-full text-center text-xs mt-4 underline text-green-700 hover:text-green-500 block"
+          >
+            {isNewUser ? 'Уже есть аккаунт? Войти' : 'Новый выживший? Зарегистрироваться'}
+          </button>
         </div>
       </div>
     );
   }
 
+  // Главный интерфейс Пип-Боя после успешного входа
   return (
     <div className="min-h-screen bg-black text-green-500 font-mono p-4 pb-12 select-none relative overflow-x-hidden">
+      {/* ЭЛТ-эффект монитора */}
       <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] z-50"></div>
 
-      {/* Профиль Игрока */}
+      {/* ШАПКА: Статус Системы */}
       <div className="border border-green-500 p-4 mb-6 shadow-[0_0_15px_rgba(34,197,94,0.3)] bg-zinc-900/50 rounded-sm pt-[env(safe-area-inset-top)]">
         <div className="flex justify-between items-center flex-wrap gap-2">
           <div>
@@ -102,48 +177,87 @@ export default function PipBoyCRM() {
           <div className="text-right">
             <span className="text-2xl font-black">LVL {user.level}</span>
             <div className="w-32 bg-zinc-800 h-2 border border-green-500 mt-1 overflow-hidden">
-              <div className="bg-green-500 h-full shadow-[0_0_8px_#22c55e]" style={{ width: `${(user.experience / (user.level * 100)) * 100}%` }}></div>
+              <div 
+                className="bg-green-500 h-full shadow-[0_0_8px_#22c55e]" 
+                style={{ width: `${Math.min((user.experience / (user.level * 100)) * 100, 100)}%` }}
+              ></div>
             </div>
             <p className="text-[10px] text-green-600 mt-0.5">{user.experience} / {user.level * 100} XP</p>
           </div>
         </div>
-        <button onClick={() => supabase.auth.signOut()} className="text-[10px] text-red-500 mt-2 underline block">Покинуть убежище</button>
+        <button 
+          onClick={() => supabase.auth.signOut()} 
+          className="text-[10px] text-red-500 mt-2 underline block hover:text-red-400"
+        >
+          Покинуть убежище
+        </button>
       </div>
 
-      {/* Создание Квеста */}
+      {/* ФОРМА: Добавление нового квеста */}
       <details className="mb-6 border border-green-700 bg-zinc-950 rounded-sm p-2 text-sm">
-        <summary className="cursor-pointer font-bold text-green-400 uppercase tracking-wider"> [+] Добавить Новое Задание</summary>
-        <form onSubmit={createQuest} className="mt-3 space-y-3">
-          <input type="text" placeholder="НАЗВАНИЕ КВЕСТА" value={newQuestTitle} onChange={e => setNewQuestTitle(e.target.value)} className="w-full bg-black border border-green-800 p-2 text-green-500 focus:outline-none placeholder-green-800" required />
-          <textarea placeholder="ОПИСАНИЕ ЗАДАЧИ" value={newQuestDesc} onChange={e => setNewQuestDesc(e.target.value)} className="w-full bg-black border border-green-800 p-2 text-green-500 focus:outline-none placeholder-green-800" rows={2} />
-          <select value={newQuestDiff} onChange={e => setNewQuestDiff(e.target.value as Difficulty)} className="w-full bg-black border border-green-800 p-2 text-green-500 focus:outline-none">
-            <option value="easy">Легко (+25 XP)</option>
-            <option value="medium">Средне (+50 XP)</option>
-            <option value="hard">Сложно (+100 XP)</option>
+        <summary className="cursor-pointer font-bold text-green-400 uppercase tracking-wider outline-none p-1 select-none"> 
+          [+] Добавить Новое Задание
+        </summary>
+        <form onSubmit={createQuest} className="mt-3 space-y-3 p-1">
+          <input 
+            type="text" 
+            placeholder="НАЗВАНИЕ КВЕСТА" 
+            value={newQuestTitle} 
+            onChange={e => setNewQuestTitle(e.target.value)} 
+            className="w-full bg-black border border-green-800 p-2 text-green-500 focus:outline-none focus:border-green-500 placeholder-green-800 uppercase" 
+            required 
+          />
+          <textarea 
+            placeholder="ОПИСАНИЕ ЗАДАЧИ (ОПЦИОНАЛЬНО)" 
+            value={newQuestDesc} 
+            onChange={e => setNewQuestDesc(e.target.value)} 
+            className="w-full bg-black border border-green-800 p-2 text-green-500 focus:outline-none focus:border-green-500 placeholder-green-800" 
+            rows={2} 
+          />
+          <select 
+            value={newQuestDiff} 
+            onChange={e => setNewQuestDiff(e.target.value as Difficulty)} 
+            className="w-full bg-black border border-green-800 p-2 text-green-500 focus:outline-none focus:border-green-500"
+          >
+            <option value="easy">ЛЕГКО (+25 XP)</option>
+            <option value="medium">СРЕДНЕ (+50 XP)</option>
+            <option value="hard">СЛОЖНО (+100 XP)</option>
           </select>
-          <button type="submit" className="w-full bg-green-900/30 border border-green-500 p-2 font-bold uppercase hover:bg-green-500 hover:text-black transition-colors">Раздать квест в пустошь</button>
+          <button 
+            type="submit" 
+            className="w-full bg-green-900/30 border border-green-500 p-2 font-bold uppercase hover:bg-green-500 hover:text-black transition-colors"
+          >
+            Раздать квест в пустошь
+          </button>
         </form>
       </details>
 
-      {/* Список квестов */}
-      <h2 className="text-lg font-bold mb-4 tracking-wider">🕹 АКТИВНЫЕ ЗАДАНИЯ</h2>
+      {/* БЛОК: Список активных квестов */}
+      <h2 className="text-lg font-bold mb-4 tracking-wider text-green-400">🕹 ДОСТУПНЫЕ МИССИИ</h2>
       <div className="space-y-4">
         {quests.filter(q => q.status !== 'completed').map((quest) => (
-          <div key={quest.id} className="border border-green-700 p-4 bg-zinc-950 rounded-sm hover:border-green-400 transition-colors">
-            <div className="flex justify-between items-start gap-4">
-              <div>
-                <span className="inline-block border border-green-500 text-[10px] px-1.5 py-0.5 rounded-sm mb-2 text-green-400 font-bold uppercase">
-                  {quest.difficulty} (+{XP_REWARDS[quest.difficulty as Difficulty]} XP)
+          <div key={quest.id} className="border border-green-700 p-4 bg-zinc-950 rounded-sm hover:border-green-400 transition-colors shadow-sm">
+            <div className="flex justify-between items-start gap-4 flex-wrap sm:flex-nowrap">
+              <div className="flex-1">
+                <span className="inline-block border border-green-500 text-[10px] px-1.5 py-0.5 rounded-sm mb-2 text-green-400 font-bold uppercase tracking-wide">
+                  {quest.difficulty === 'easy' ? 'ЛЕГКИЙ КВЕСТ' : quest.difficulty === 'hard' ? 'ОПАСНЫЙ КВЕСТ' : 'СРЕДНИЙ КВЕСТ'} (+{XP_REWARDS[quest.difficulty as Difficulty]} XP)
                 </span>
-                <h3 className="text-md font-bold text-green-300">{quest.title}</h3>
-                {quest.description && <p className="text-sm text-green-600 mt-1">{quest.description}</p>}
+                <h3 className="text-md font-bold text-green-300 uppercase tracking-wide">{quest.title}</h3>
+                {quest.description && <p className="text-sm text-green-600 mt-1 whitespace-pre-wrap">{quest.description}</p>}
               </div>
-              <button onClick={() => completeQuest(quest.id, quest.difficulty)} className="bg-green-900/40 border border-green-500 text-green-400 text-xs px-3 py-2 uppercase tracking-wider font-bold hover:bg-green-500 hover:text-black transition-all">Выполнить</button>
+              <button 
+                onClick={() => completeQuest(quest.id, quest.difficulty)} 
+                className="w-full sm:w-auto bg-green-900/40 border border-green-500 text-green-400 text-xs px-4 py-2.5 uppercase tracking-wider font-bold hover:bg-green-500 hover:text-black transition-all active:scale-95"
+              >
+                Выполнить
+              </button>
             </div>
           </div>
         ))}
         {quests.filter(q => q.status !== 'completed').length === 0 && (
-          <p className="text-green-800 italic text-center py-6">Вокруг тишина. Все рейдеры повержены, задачи закрыты.</p>
+          <div className="border border-dashed border-green-900 p-8 text-center rounded-sm">
+            <p className="text-green-800 italic">Пустошь безопасна. Все рейдеры повержены, задачи закрыты.</p>
+          </div>
         )}
       </div>
     </div>
