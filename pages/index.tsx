@@ -6,6 +6,7 @@ import { calculateLevelUp, XP_REWARDS, Difficulty } from '../lib/gameLogic';
 export default function PipBoyCRM() {
   const [user, setUser] = useState<any>(null);
   const [quests, setQuests] = useState<any[]>([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isNewUser, setIsNewUser] = useState(false);
@@ -17,6 +18,7 @@ export default function PipBoyCRM() {
   useEffect(() => {
     checkUser();
     fetchQuests();
+    fetchLeaderboard();
     
     const { data: authListener } = supabase.auth.onAuthStateChange(() => {
       checkUser();
@@ -30,7 +32,6 @@ export default function PipBoyCRM() {
     if (authUser) {
       let { data, error } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
       
-      // Если профиля нет или в нем пустое имя, берем логин из почты или пишем дефолт
       const fallbackName = authUser.email ? authUser.email.split('@')[0] : 'ВЫЖИВШИЙ';
       
       if (error || !data) {
@@ -39,10 +40,7 @@ export default function PipBoyCRM() {
         ]).select().single();
         setUser(newProfile);
       } else {
-        // Защита: если строка есть, но имя внутри пустое
-        if (!data.username) {
-          data.username = fallbackName;
-        }
+        if (!data.username) data.username = fallbackName;
         setUser(data);
       }
     } else {
@@ -53,6 +51,17 @@ export default function PipBoyCRM() {
   async function fetchQuests() {
     let { data } = await supabase.from('quests').select('*').order('created_at', { ascending: false });
     if (data) setQuests(data);
+  }
+
+  async function fetchLeaderboard() {
+    // Вытягиваем всех пользователей и сортируем: сначала старший уровень, потом у кого больше опыта
+    let { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('level', { ascending: false })
+      .order('experience', { ascending: false });
+    
+    if (data) setLeaderboard(data);
   }
 
   async function handleAuth(e: React.FormEvent) {
@@ -84,6 +93,7 @@ export default function PipBoyCRM() {
         alert(`Ошибка авторизации: ${error.message}`);
       } else {
         await checkUser();
+        fetchLeaderboard();
       }
     }
   }
@@ -113,11 +123,11 @@ export default function PipBoyCRM() {
       alert(`⚡️ ПОВЫШЕНИЕ УРОВНЯ! Новый уровень: ${level}`);
     }
 
-    checkUser();
-    fetchQuests();
+    await checkUser();
+    await fetchQuests();
+    await fetchLeaderboard(); // Обновляем топ после выполнения квеста
   }
 
-  // Безопасное получение имени для отображения
   const displayUsername = user && user.username ? String(user.username).toUpperCase() : 'ВЫЖИВШИЙ';
 
   if (!user) {
@@ -161,7 +171,8 @@ export default function PipBoyCRM() {
       </Head>
       <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] z-50"></div>
 
-      <div className="border border-green-500 p-4 mb-6 shadow-[0_0_15px_rgba(34,197,94,0.3)] bg-zinc-900 p-4 rounded-sm">
+      {/* ПРОФИЛЬ */}
+      <div className="border border-green-500 p-4 mb-6 shadow-[0_0_15px_rgba(34,197,94,0.3)] bg-zinc-900 rounded-sm">
         <div className="flex justify-between items-center flex-wrap gap-2">
           <div>
             <h1 className="text-xl font-bold tracking-widest text-green-400">ПИП-БОЙ 3000</h1>
@@ -178,6 +189,7 @@ export default function PipBoyCRM() {
         <button onClick={() => supabase.auth.signOut()} className="text-xs text-red-500 mt-3 underline block hover:text-red-400">Покинуть убежище</button>
       </div>
 
+      {/* ДОБАВЛЕНИЕ КВЕСТА */}
       <details className="mb-6 border border-green-700 bg-zinc-900 rounded-sm p-3 text-sm">
         <summary className="cursor-pointer font-bold text-green-400 uppercase tracking-wider outline-none"> 
           [+] Добавить Новое Задание
@@ -194,14 +206,15 @@ export default function PipBoyCRM() {
         </form>
       </details>
 
+      {/* ДОСТУПНЫЕ МИССИИ */}
       <h2 className="text-lg font-bold mb-4 tracking-wider text-green-400">🕹 ДОСТУПНЫЕ МИССИИ</h2>
-      <div className="space-y-4">
+      <div className="space-y-4 mb-8">
         {quests.filter(q => q.status !== 'completed').map((quest) => (
           <div key={quest.id} className="border border-green-700 p-4 bg-zinc-900 rounded-sm hover:border-green-400 transition-colors">
             <div className="flex justify-between items-start gap-4 flex-wrap sm:flex-nowrap">
               <div className="flex-1">
                 <span className="inline-block border border-green-500 text-[10px] px-1.5 py-0.5 rounded-sm mb-2 text-green-400 font-bold uppercase">
-                  {quest.difficulty} (+{XP_REWARDS[quest.difficulty as Difficulty]} XP)
+                  {quest.difficulty === 'easy' ? 'ЛЕГКО' : quest.difficulty === 'hard' ? 'СЛОЖНО' : 'СРЕДНЕ'} (+{XP_REWARDS[quest.difficulty as Difficulty]} XP)
                 </span>
                 <h3 className="text-md font-bold text-green-300 uppercase">{quest.title}</h3>
                 {quest.description && <p className="text-sm text-green-600 mt-1 whitespace-pre-wrap">{quest.description}</p>}
@@ -216,6 +229,47 @@ export default function PipBoyCRM() {
           </div>
         )}
       </div>
+
+      {/* ТАБЛИЦА ЛИДЕРОВ (НОВЫЙ БЛОК) */}
+      <h2 className="text-lg font-bold mb-4 tracking-wider text-green-400">🏆 ЗАЛ СЛАВЫ УБЕЖИЩА</h2>
+      <div className="border border-green-700 bg-zinc-900 rounded-sm p-4 shadow-sm">
+        <div className="w-full text-xs space-y-2">
+          {/* Шапка таблицы */}
+          <div className="flex justify-between font-bold text-green-600 border-b border-green-900 pb-2 uppercase tracking-wider">
+            <div className="w-12 text-center">ПОЗ</div>
+            <div className="flex-1 pl-2">ВЫЖИВШИЙ</div>
+            <div className="w-16 text-center">УРОВЕНЬ</div>
+            <div className="w-20 text-right">ОПЫТ</div>
+          </div>
+          
+          {/* Строки рейтинга */}
+          {leaderboard.map((player, index) => {
+            const isMe = user && player.id === user.id;
+            return (
+              <div 
+                key={player.id} 
+                className={`flex justify-between items-center py-2 border-b border-zinc-800/40 font-mono text-sm tracking-wide ${
+                  isMe ? 'bg-green-900/20 text-green-300 font-bold border-l-2 border-green-500 pl-1' : 'text-green-500'
+                }`}
+              >
+                <div className="w-12 text-center text-xs font-bold text-green-600">
+                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                </div>
+                <div className="flex-1 pl-2 truncate uppercase">
+                  {player.username || 'Неизвестный'} {isMe && <span className="text-[10px] text-green-600 font-normal tracking-tight">(ВЫ)</span>}
+                </div>
+                <div className="w-16 text-center font-black">
+                  {player.level || 1}
+                </div>
+                <div className="w-20 text-right text-xs text-green-600">
+                  {player.experience || 0} XP
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
     </div>
   );
 }
