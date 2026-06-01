@@ -160,7 +160,7 @@ export default function PipBoyCRM() {
     refreshAllData();
   }
 
-  async function completeQuest(quest.any) {
+  async function completeQuest(quest:any) {
     if (!user) return;
     
     const difficulty = quest.difficulty as Difficulty;
